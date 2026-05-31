@@ -21,10 +21,6 @@ import {
   TableRow,
   TableCell,
   TableContainer,
-  List,
-  ListItem,
-  ListItemText,
-  Divider,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -51,7 +47,25 @@ export default function AdminDashboard() {
     setTasksLoading(true);
     try {
       const { data } = await api.get('/tasks');
-      setTasks(Array.isArray(data?.data) ? data?.data : []);
+      const raw = Array.isArray(data?.data) ? data?.data : [];
+      const normalized = raw.map((t) => ({
+        ...t,
+        // prefer nested user name if backend provides user object
+        assigned_name: t.user?.name || (t.assigned_name || t.assigned_to?.name || t.assignedTo?.name) || null,
+        // normalize assigned_to to id when backend returns object
+        assigned_to: typeof t.assigned_to === 'object' && t.assigned_to !== null
+          ? t.assigned_to.id
+          : t.assigned_to ?? t.assignedTo ?? null,
+        // normalize due_date to ISO string
+        due_date: t.due_date ?? t.dueDate ?? null,
+      }));
+      // sort newest first by created timestamp (supports created_at or createdAt)
+      normalized.sort((a, b) => {
+        const ta = new Date(a.created_at ?? a.createdAt ?? 0).getTime();
+        const tb = new Date(b.created_at ?? b.createdAt ?? 0).getTime();
+        return tb - ta;
+      });
+      setTasks(normalized);
     } catch {
       showMessage('Failed to load tasks', 'error');
     } finally {
@@ -62,7 +76,18 @@ export default function AdminDashboard() {
   const fetchEmployees = useCallback(async () => {
     try {
       const { data } = await api.get('/users');
-      setEmployees(data?.data?.filter((u) => u.role === 'employee'));
+      const raw = Array.isArray(data?.data) ? data.data : [];
+      const filtered = raw.filter((u) => u.role === 'employee');
+      filtered.sort((a, b) => {
+        const ta = new Date(a.created_at ?? a.createdAt ?? 0).getTime();
+        const tb = new Date(b.created_at ?? b.createdAt ?? 0).getTime();
+        if (tb !== ta) return tb - ta;
+        // fallback to numeric id if available
+        const ida = Number(a.id ?? 0);
+        const idb = Number(b.id ?? 0);
+        return idb - ida;
+      });
+      setEmployees(filtered);
     } catch {
       showMessage('Failed to load employees', 'error');
     }
@@ -139,7 +164,20 @@ export default function AdminDashboard() {
       <Container maxWidth="lg" sx={{ py: 4 }}>
 
         {/* Stats */}
-        <Grid container spacing={2} sx={{ mb: 4 }}>
+        <Box
+          sx={{
+            mb: 4,
+            display: 'grid',
+            gap: { xs: 1, sm: 2 },
+            gridTemplateColumns: {
+              xs: 'repeat(1, 1fr)',
+              sm: 'repeat(2, 1fr)',
+              md: 'repeat(3, 1fr)',
+              lg: 'repeat(5, 1fr)',
+            },
+            alignItems: 'stretch',
+          }}
+        >
           {[
             { label: 'Total Tasks', value: stats.total, gradient: 'linear-gradient(135deg,#4F46E5,#818CF8)', icon: '📋' },
             { label: 'Pending', value: stats.pending, gradient: 'linear-gradient(135deg,#F59E0B,#FCD34D)', icon: '⏳' },
@@ -147,23 +185,37 @@ export default function AdminDashboard() {
             { label: 'Completed', value: stats.completed, gradient: 'linear-gradient(135deg,#10B981,#6EE7B7)', icon: '✅' },
             { label: 'Employees', value: employees.length, gradient: 'linear-gradient(135deg,#7C3AED,#A78BFA)', icon: '👥' },
           ].map((s) => (
-            <Grid item xs={6} sm={4} md={2.4} key={s.label}>
+            <Box key={s.label} sx={{ p: 0 }}>
               <Paper
                 sx={{
-                  p: 2.5, borderRadius: 3, background: s.gradient,
-                  color: 'white', textAlign: 'center',
+                  p: { xs: 2, sm: 2.5 },
+                  borderRadius: 3,
+                  background: s.gradient,
+                  color: 'white',
+                  textAlign: 'center',
                   boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
                   transition: 'transform 0.2s',
                   '&:hover': { transform: 'translateY(-3px)' },
+                  minHeight: { xs: 80, sm: 100 },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
                 }}
               >
-                <Typography sx={{ fontSize: 26, lineHeight: 1 }}>{s.icon}</Typography>
-                <Typography variant="h4" fontWeight={800} sx={{ my: 0.5 }}>{s.value}</Typography>
-                <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>{s.label}</Typography>
+                <Typography sx={{ fontSize: { xs: 18, sm: 22, md: 26 }, lineHeight: 1 }}>{s.icon}</Typography>
+                <Typography
+                  variant="h4"
+                  fontWeight={800}
+                  sx={{ my: 0.5, fontSize: { xs: 18, sm: 22, md: 28 } }}
+                >
+                  {s.value}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600, fontSize: { xs: 12, sm: 13 } }}>{s.label}</Typography>
               </Paper>
-            </Grid>
+            </Box>
           ))}
-        </Grid>
+        </Box>
 
         {/* Tabs */}
         <Paper sx={{ mb: 3, borderRadius: 3, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
@@ -196,13 +248,14 @@ export default function AdminDashboard() {
           <Paper sx={{ p: 3, borderRadius: 3, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' }}>
             {editingTask ? (
               <>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
                   <Typography variant="h6">Edit Task</Typography>
                   <Button
                     startIcon={<ArrowBackIcon />}
                     variant="outlined"
                     size="small"
                     onClick={() => setEditingTask(null)}
+                    sx={{ ml: 'auto' }}
                   >
                     Back
                   </Button>
@@ -222,7 +275,21 @@ export default function AdminDashboard() {
             ) : (
               <>
                 <Typography variant="h6" sx={{ mb: 2 }}>All Tasks</Typography>
-                <TaskTable tasks={tasks} onEdit={setEditingTask} />
+                <TaskTable
+                  tasks={tasks}
+                  onEdit={(task) => {
+                    setEditingTask({
+                      ...task,
+                      assigned_to: typeof task.assigned_to === 'object' && task.assigned_to !== null
+                        ? task.assigned_to.id
+                        : task.assigned_to,
+                      due_date: task.due_date
+                        ? new Date(task.due_date).toISOString().split('T')[0]
+                        : '',
+                    });
+                  }}
+                  editLoading={formLoading}
+                />
               </>
             )}
           </Paper>
@@ -244,17 +311,17 @@ export default function AdminDashboard() {
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell>#</TableCell>
+                      <TableCell>S.No</TableCell>
                       <TableCell>Name</TableCell>
                       <TableCell>Email</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {employees.map((emp) => (
-                      <TableRow key={emp.id} hover sx={{ '&:last-child td': { border: 0 } }}>
-                        <TableCell sx={{ color: 'text.secondary', width: 50 }}>{emp.id}</TableCell>
+                    {employees.map((emp, idx) => (
+                      <TableRow key={emp.id ?? idx} hover sx={{ '&:last-child td': { border: 0 } }}>
+                        <TableCell sx={{ color: 'text.secondary', width: 50 }}>{idx + 1}</TableCell>
                         <TableCell fontWeight={600}>{emp.name}</TableCell>
-                        <TableCell color="text.secondary">{emp.email}</TableCell>
+                        <TableCell color='text.secondary'>{emp.email}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -279,10 +346,18 @@ export default function AdminDashboard() {
         {/* Activity Logs tab */}
         {activeTab === 'Activity' && (
           <Paper sx={{ p: 3, borderRadius: 3, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
               <Typography variant="h6">Activity Logs</Typography>
-              <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={fetchLogs}>
-                Refresh
+              <Button
+                startIcon={logsLoading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+                variant="outlined"
+                size="small"
+                onClick={fetchLogs}
+                sx={{ ml: 'auto' }}
+                disabled={logsLoading}
+                aria-busy={logsLoading}
+              >
+                {logsLoading ? 'Refreshing…' : 'Refresh'}
               </Button>
             </Stack>
             {logsLoading ? (
@@ -295,45 +370,37 @@ export default function AdminDashboard() {
                 <Typography color="text.secondary" sx={{ mt: 1 }}>No activity logs available.</Typography>
               </Box>
             ) : (
-              <List dense disablePadding>
-                {logs.map((log, idx) => (
-                  <Box key={log.id}>
-                    <ListItem
-                      alignItems="flex-start"
-                      sx={{
-                        borderRadius: 2, px: 2,
-                        '&:hover': { bgcolor: 'grey.50' },
-                        transition: 'background 0.15s',
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          width: 8, height: 8, borderRadius: '50%',
-                          bgcolor: 'primary.main', mt: 0.8, mr: 2, flexShrink: 0,
-                        }}
-                      />
-                      <ListItemText
-                        primary={
-                          <Typography variant="body2">
-                            <strong>{log.user_name || log.performed_by || 'System'}</strong>
-                            {' — '}
-                            {log.action || log.description}
-                            {log.task_title && ` on task "${log.task_title}"`}
-                          </Typography>
-                        }
-                        secondary={
-                          log.created_at
-                            ? new Date(log.created_at).toLocaleString()
+              <TableContainer sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell>S.No</TableCell>
+                      <TableCell>User</TableCell>
+                      <TableCell>Action</TableCell>
+                      <TableCell>Task</TableCell>
+                      <TableCell>Timestamp</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    
+                    {logs.map((log, idx) => (
+                      <TableRow key={log.id ?? idx} hover sx={{ '&:last-child td': { border: 0 } }}>
+                        <TableCell sx={{ color: 'text.secondary', width: 50 }}>{idx + 1}</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>{log.user?.name || 'System'}</TableCell>
+                        <TableCell>{log.action || log.description || '—'}</TableCell>
+                        <TableCell sx={{ color: 'text.secondary' }}>{log.task?.title || '—'}</TableCell>
+                        <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                          {log.createdAt
+                            ? new Date(log.createdAt).toLocaleString()
                             : log.timestamp
                             ? new Date(log.timestamp).toLocaleString()
-                            : ''
-                        }
-                      />
-                    </ListItem>
-                    {idx < logs.length - 1 && <Divider component="li" sx={{ my: 0.5 }} />}
-                  </Box>
-                ))}
-              </List>
+                            : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             )}
           </Paper>
         )}

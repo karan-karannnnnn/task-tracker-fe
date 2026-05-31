@@ -11,22 +11,34 @@ import {
   Tabs,
   Tab,
   Alert,
+  Snackbar,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
   Stack,
   CircularProgress,
+  InputAdornment,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
+import bcrypt from 'bcryptjs';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import GroupsIcon from '@mui/icons-material/Groups';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 export default function Login() {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'employee' });
   const [error, setError] = useState('');
+  const [toast, setToast] = useState({ open: false, message: '', success: false });
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -46,19 +58,76 @@ export default function Login() {
         login(data?.data?.token, data?.data?.user);
         navigate(data?.data?.user?.role === 'admin' ? '/admin' : '/employee');
       } else {
-        await api.post('/auth/register', form);
+        const response = await api.post('/auth/register', form);
         setMode('login');
+        const msg = response?.data?.message || 'Registration successful';
+        setToast({ open: true, message: msg, success: true });
         setError('');
         setForm((prev) => ({ ...prev, name: '' }));
       }
     } catch (err) {
+      // console.log(err?.response);
       const msg =
-        err.response?.data?.error ||
+        err.response?.data?.message ||
         err.response?.data?.errors?.[0]?.msg ||
         'Something went wrong';
       setError(msg);
+      setToast({ open: true, message: msg, success: false });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Forgot / Reset Password flow
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState('request'); // 'request' | 'reset'
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotToken, setForgotToken] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotShowPassword, setForgotShowPassword] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState(null);
+
+  const openForgot = () => {
+    setForgotOpen(true);
+    setForgotStep('request');
+    setForgotEmail(form.email || '');
+    setForgotToken('');
+    setForgotNewPassword('');
+    setForgotMessage(null);
+  };
+
+  const handleSendReset = async () => {
+    setForgotLoading(true);
+    setForgotMessage(null);
+    try {
+      const { data } = await api.post('/auth/forgot-password', { email: forgotEmail });
+      setForgotMessage(data?.message || 'Reset instructions sent to your email');
+      setForgotStep('reset');
+    } catch (err) {
+      setForgotMessage(err.response?.data?.message || 'Failed to send reset email');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleDoReset = async () => {
+    if (!forgotToken || !forgotNewPassword) {
+      setForgotMessage('Please provide token and a new password');
+      return;
+    }
+    setForgotLoading(true);
+    setForgotMessage(null);
+    try {
+      
+      const payload = { token: forgotToken, password: forgotNewPassword };
+      const { data } = await api.post('/auth/reset-password', payload);
+      setForgotMessage(data?.message || 'Password reset successful. Please login.');
+      setForgotStep('done');
+    } catch (err) {
+      setForgotMessage(err.response?.data?.message || 'Failed to reset password');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -152,7 +221,6 @@ export default function Login() {
 
             <Box component="form" onSubmit={handleSubmit} sx={{ p: 3 }}>
               <Stack spacing={2.5}>
-                {error && <Alert severity="error" sx={{ borderRadius: 2 }}>{error}</Alert>}
 
                 {mode === 'register' && (
                   <TextField label="Full Name" name="name" value={form.name}
@@ -162,10 +230,32 @@ export default function Login() {
                 <TextField label="Email" name="email" type="email" value={form.email}
                   onChange={handleChange} placeholder="you@example.com" required size="small" fullWidth />
 
-                <TextField label="Password" name="password" type="password" value={form.password}
+                <TextField label="Password" name="password" type={showPassword ? 'text' : 'password'} value={form.password}
                   onChange={handleChange}
                   placeholder={mode === 'register' ? 'At least 6 characters' : ''}
-                  required size="small" fullWidth />
+                  required size="small" fullWidth
+                  slotProps={{
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setShowPassword((prev) => !prev)} edge="end" size="small">
+                            {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                />
+
+                {mode === 'login' && (
+                  <Typography
+                    variant="body2"
+                    onClick={openForgot}
+                    sx={{ color: 'primary.main', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-end' }}
+                  >
+                    Forgot password?
+                  </Typography>
+                )}
 
                 {mode === 'register' && (
                   <FormControl size="small" fullWidth>
@@ -191,6 +281,78 @@ export default function Login() {
           </Paper>
         </Box>
       </Box>
+
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={4000}
+        onClose={() => setToast((prev) => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          severity={toast.success ? 'success' : 'error'}
+          onClose={() => setToast((prev) => ({ ...prev, open: false }))}
+          sx={{ width: '100%' }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
+
+      <Dialog open={forgotOpen} onClose={() => setForgotOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Reset Password</DialogTitle>
+        <DialogContent>
+          {forgotMessage && (
+            <Alert severity="info" sx={{ mb: 2 }}>{forgotMessage}</Alert>
+          )}
+
+          {forgotStep === 'request' && (
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField label="Email" type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} fullWidth size="small" />
+              <Typography variant="body2" color="text.secondary">Enter your account email to receive reset instructions. If you received a token, switch to the Reset step.</Typography>
+            </Stack>
+          )}
+
+          {forgotStep === 'reset' && (
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField label="Reset Token" value={forgotToken} onChange={(e) => setForgotToken(e.target.value)} fullWidth size="small" />
+              <TextField
+                label="New Password"
+                type={forgotShowPassword ? 'text' : 'password'}
+                value={forgotNewPassword}
+                onChange={(e) => setForgotNewPassword(e.target.value)}
+                fullWidth
+                size="small"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setForgotShowPassword((p) => !p)} edge="end" size="small">
+                        {forgotShowPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <Typography variant="body2" color="text.secondary">Paste the token from your email and choose a new password.</Typography>
+            </Stack>
+          )}
+
+          {forgotStep === 'done' && (
+            <Typography sx={{ mt: 1 }}>Password successfully reset. You can now sign in.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setForgotOpen(false)} disabled={forgotLoading}>Close</Button>
+          {forgotStep === 'request' && (
+            <Button onClick={handleSendReset} disabled={forgotLoading || !forgotEmail} variant="contained">
+              {forgotLoading ? 'Sending...' : 'Send Reset Email'}
+            </Button>
+          )}
+          {forgotStep === 'reset' && (
+            <Button onClick={handleDoReset} disabled={forgotLoading || !forgotToken || !forgotNewPassword} variant="contained">
+              {forgotLoading ? 'Resetting...' : 'Reset Password'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

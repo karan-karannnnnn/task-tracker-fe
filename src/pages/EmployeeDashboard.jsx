@@ -10,6 +10,7 @@ import {
   Paper,
   Alert,
   CircularProgress,
+  Skeleton,
   Card,
   CardContent,
   CardActions,
@@ -106,11 +107,22 @@ export default function EmployeeDashboard() {
 
   useEffect(() => { setPage(1); }, [statusFilter]);
 
+  // Compute, sanitize and format stats for display
+  const _rawStats = {
+    total: Array.isArray(tasks) ? tasks.length : 0,
+    pending: Array.isArray(tasks) ? tasks.filter((t) => t.status === 'pending').length : 0,
+    inProgress: Array.isArray(tasks) ? tasks.filter((t) => t.status === 'in_progress').length : 0,
+    completed: Array.isArray(tasks) ? tasks.filter((t) => t.status === 'completed').length : 0,
+  };
+
+  const sanitize = (n) => (Number.isFinite(n) ? Math.max(0, n) : 0);
+  const fmt = (n) => new Intl.NumberFormat().format(n);
+
   const stats = {
-    total: tasks.length,
-    pending: tasks.filter((t) => t.status === 'pending').length,
-    inProgress: tasks.filter((t) => t.status === 'in_progress').length,
-    completed: tasks.filter((t) => t.status === 'completed').length,
+    total: fmt(sanitize(_rawStats.total)),
+    pending: fmt(sanitize(_rawStats.pending)),
+    inProgress: fmt(sanitize(_rawStats.inProgress)),
+    completed: fmt(sanitize(_rawStats.completed)),
   };
 
   return (
@@ -146,19 +158,36 @@ export default function EmployeeDashboard() {
             { label: 'In Progress', value: stats.inProgress, gradient: 'linear-gradient(135deg,#3B82F6,#93C5FD)', icon: '🔄' },
             { label: 'Completed', value: stats.completed, gradient: 'linear-gradient(135deg,#10B981,#6EE7B7)', icon: '✅' },
           ].map((s) => (
-            <Grid item xs={6} sm={3} key={s.label}>
+            <Grid item xs={12} sm={6} md={3} key={s.label}>
               <Paper
+                role="group"
+                aria-label={`${s.label}: ${s.value}`}
                 sx={{
-                  p: 2.5, borderRadius: 3, background: s.gradient,
-                  color: 'white', textAlign: 'center',
+                  p: 2.5,
+                  minHeight: 120,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 0.5,
+                  borderRadius: 3,
+                  background: s.gradient,
+                  color: 'white',
+                  textAlign: 'center',
                   boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
                   transition: 'transform 0.2s',
                   '&:hover': { transform: 'translateY(-3px)' },
                 }}
               >
-                <Typography sx={{ fontSize: 28, lineHeight: 1 }}>{s.icon}</Typography>
-                <Typography variant="h4" fontWeight={800} sx={{ my: 0.5 }}>{s.value}</Typography>
-                <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>{s.label}</Typography>
+                <Typography sx={{ fontSize: 28, lineHeight: 1 }} aria-hidden>
+                  <span role="img" aria-label={`${s.label} icon`}>{s.icon}</span>
+                </Typography>
+                <Typography variant="h4" fontWeight={800} sx={{ my: 0.5 }} aria-live="polite">
+                  {loading ? <Skeleton width={80} height={36} /> : s.value}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.label}
+                </Typography>
               </Paper>
             </Grid>
           ))}

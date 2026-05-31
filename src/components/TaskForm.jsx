@@ -100,15 +100,18 @@ export default function TaskForm({ employees, initialData, onSubmit, onCancel, l
             </Select>
           </FormControl>
 
-          <TextField
-            type="date"
-            name="due_date"
-            value={form.due_date}
-            onChange={handleChange}
-            size="small"
-            fullWidth
-            InputLabelProps={{ shrink: true }}
-          />
+          <FormControl size="small" fullWidth>
+            <TextField
+              type="date"
+              name="due_date"
+              label="Due Date"
+              value={form.due_date}
+              onChange={handleChange}
+              size="small"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+          </FormControl>
         </Stack>
 
         <Stack direction="row" spacing={1} justifyContent="flex-end">
